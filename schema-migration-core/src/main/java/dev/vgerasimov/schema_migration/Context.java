@@ -1,4 +1,4 @@
-package dev.vgerasimov;
+package dev.vgerasimov.schema_migration;
 
 import java.time.Clock;
 

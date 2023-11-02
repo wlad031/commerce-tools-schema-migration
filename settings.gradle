@@ -1,2 +1,5 @@
 rootProject.name = 'commerce-tools-schema-migration'
 
+include 'schema-migration-core'
+include 'schema-migration-commerce-tools'
+

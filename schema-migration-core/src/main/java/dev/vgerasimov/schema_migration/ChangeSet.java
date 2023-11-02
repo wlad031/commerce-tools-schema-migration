@@ -1,21 +1,22 @@
-package dev.vgerasimov;
+package dev.vgerasimov.schema_migration;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.function.Function;
 
-public abstract class ChangeSet<C extends Context> implements Function<C, ChangeSet.Result> {
+public abstract class ChangeSet<C extends Context> implements Function<C, ChangeSet.Result>, Serializable {
   private final String id;
-  private final Function<C, Status> mutation;
 
-  public ChangeSet(String id, Function<C, Status> mutation) {
+  protected ChangeSet(String id) {
     this.id = id;
-    this.mutation = mutation;
   }
+
+  public abstract Status mutate(C context);
 
   @Override
   public Result apply(C context) {
-    Status status = mutation.apply(context);
+    Status status = mutate(context);
     LocalDateTime now = LocalDateTime.now(context.getClock());
     return new Result(id, status, now);
   }

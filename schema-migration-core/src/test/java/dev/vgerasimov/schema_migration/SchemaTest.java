@@ -1,4 +1,4 @@
-package dev.vgerasimov;
+package dev.vgerasimov.schema_migration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
@@ -99,7 +99,12 @@ class SchemaTest {
 
   private static <C extends Context> ChangeSet<C> changeSet(
       String id, String checksum, ChangeSet.Status status) {
-    return new ChangeSet<>(id, __ -> status) {
+    return new ChangeSet<>(id) {
+      @Override
+      public Status mutate(C context) {
+        return status;
+      }
+
       @Override
       public String getChecksum() {
         return checksum;
@@ -111,9 +116,9 @@ class SchemaTest {
     return LocalDateTime.ofInstant(Instant.ofEpochSecond(time), ZoneId.of("UTC"));
   }
 
-  private static Clock iteratingClock(long timeBegin) {
+  private static Clock iteratingClock(long timeStart) {
     return new Clock() {
-      private long time = timeBegin;
+      private long time = timeStart;
 
       @Override
       public ZoneId getZone() {
