@@ -5,26 +5,26 @@ import static java.util.stream.Collectors.toList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import lombok.AccessLevel;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
 
-public class Schema<C extends Context> implements Function<C, Schema.Result> {
+@RequiredArgsConstructor(access = AccessLevel.PUBLIC)
+public class Schema<C extends Context> implements BiFunction<C, List<ChangeSet<C>>, Schema.Result> {
 
   private final HistorySource historySource;
-  private final ArrayList<ChangeSet<C>> changeSets;
-
-  public Schema(HistorySource historySource) {
-    this.historySource = historySource;
-    this.changeSets = new ArrayList<>();
-  }
-
-  public Schema<C> add(ChangeSet<C> changeSet) {
-    changeSets.add(changeSet);
-    return this;
-  }
 
   @Override
-  public Result apply(C context) {
+  public Result apply(C context, List<ChangeSet<C>> changeSets) {
+    if (changeSets == null) {
+      throw new IllegalArgumentException("Change sets list must not be null");
+    }
+
     List<HistoryRecord> history = historySource.getHistory();
 
     ArrayList<HistoryRecord> verified = new ArrayList<>();
@@ -52,7 +52,8 @@ public class Schema<C extends Context> implements Function<C, Schema.Result> {
             changeSet.getChecksum());
       }
 
-      if (!Objects.equals(historyRecord.getChecksum(), changeSet.getChecksum())) {
+      if (!changeSet.isSkipChecksumValidation()
+          && !Objects.equals(historyRecord.getChecksum(), changeSet.getChecksum())) {
         return new Result.ChecksumMismatch(
             historyRecord.getId(),
             changeSet.getChecksum(),
@@ -60,122 +61,106 @@ public class Schema<C extends Context> implements Function<C, Schema.Result> {
             historyRecord.getChecksum());
       }
 
+      if (historyRecord.getStatus() == HistoryRecord.Status.FAILED) {
+        toApply.add(changeSet);
+        continue;
+      }
+
       verified.add(historyRecord);
     }
 
-    if (toApply.isEmpty()) {
-      return new Result.NoChanges();
-    }
+    var applicationResult = applyAndSaveRecords(context, toApply);
 
-    ArrayList<ChangeSet.Result> applicationResults = new ArrayList<>();
-    for (ChangeSet<C> changeSet : toApply) {
-      ChangeSet.Result result = changeSet.apply(context);
-      historySource.saveRecord(
-          new HistoryRecord(
-              changeSet.getId(),
-              result.getExecutedAt(),
-              HistoryRecord.Status.APPLIED,
-              changeSet.getChecksum()));
-      applicationResults.add(result);
-    }
-
-    return new Result.Applied(
+    Function<List<ChangeSet.Result>, Result> resultConstructor;
+    if (applicationResult.first) resultConstructor = Result.Success::new;
+    else resultConstructor = Result.ApplicationFailed::new;
+    return resultConstructor.apply(
         Stream.concat(
                 verified.stream()
                     .map(
                         changeSet ->
                             new ChangeSet.Result(
                                 changeSet.getId(),
-                                ChangeSet.Status.SKIPPED,
+                                ChangeSet.Status.ALREADY_APPLIED,
                                 changeSet.getExecutedAt())),
-                applicationResults.stream())
+                applicationResult.second.stream())
             .collect(toList()));
   }
 
+  private Pair<Boolean, List<ChangeSet.Result>> applyAndSaveRecords(
+      C context, ArrayList<ChangeSet<C>> changeSetsToApply) {
+    ArrayList<ChangeSet.Result> applicationResults = new ArrayList<>();
+    boolean failed = false;
+    for (ChangeSet<C> changeSet : changeSetsToApply) {
+      if (failed) {
+        applicationResults.add(
+            new ChangeSet.Result(changeSet.getId(), ChangeSet.Status.SKIPPED, null));
+        continue;
+      }
+      ChangeSet.Result changeSetApplicationResult;
+      try {
+        changeSetApplicationResult = changeSet.apply(context);
+      } catch (Exception e) {
+        changeSetApplicationResult =
+            new ChangeSet.Result(changeSet.getId(), ChangeSet.Status.FAILED, null);
+      }
+      failed = changeSetApplicationResult.getStatus() == ChangeSet.Status.FAILED;
+      historySource.saveRecord(
+          new HistoryRecord(
+              changeSet.getId(),
+              changeSetApplicationResult.getExecutedAt(),
+              changeSetApplicationResult.getStatus() == ChangeSet.Status.FAILED
+                  ? HistoryRecord.Status.FAILED
+                  : HistoryRecord.Status.SUCCESS,
+              changeSet.getChecksum()));
+      applicationResults.add(changeSetApplicationResult);
+    }
+    return new Pair<>(!failed, applicationResults);
+  }
+
+  @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+  @EqualsAndHashCode
   public abstract static class Result {
 
-    public static class NoChanges extends Result {
-
-      @Override
-      public String toString() {
-        return "NoChanges{}";
-      }
+    @RequiredArgsConstructor(access = AccessLevel.PUBLIC)
+    @ToString
+    @EqualsAndHashCode(callSuper = true)
+    public static class Success extends Result {
+      @Getter private final List<ChangeSet.Result> changeSetResults;
     }
 
-    public static class Applied extends Result {
-      private final List<ChangeSet.Result> changeSetResults;
-
-      public Applied(List<ChangeSet.Result> changeSetResults) {
-        this.changeSetResults = changeSetResults;
-      }
-
-      @Override
-      public String toString() {
-        return "Applied{" + "changeSetResults=" + changeSetResults + '}';
-      }
-
-      @Override
-      public boolean equals(Object object) {
-        if (this == object) return true;
-        if (object == null || getClass() != object.getClass()) return false;
-        Applied applied = (Applied) object;
-        return Objects.equals(changeSetResults, applied.changeSetResults);
-      }
-
-      @Override
-      public int hashCode() {
-        return Objects.hash(changeSetResults);
-      }
+    @RequiredArgsConstructor(access = AccessLevel.PUBLIC)
+    @ToString
+    @EqualsAndHashCode(callSuper = true)
+    public static class ApplicationFailed extends Result {
+      @Getter private final List<ChangeSet.Result> changeSetResults;
     }
 
+    @RequiredArgsConstructor(access = AccessLevel.PUBLIC)
+    @ToString
+    @EqualsAndHashCode(callSuper = true)
     public static class MissingChangeSet extends Result {
-      private final String historyRecordId;
-      private final String historyRecordChecksum;
-      private final String changeSetId;
-      private final String changeSetChecksum;
-
-      public MissingChangeSet(
-          String historyRecordId,
-          String historyRecordChecksum,
-          String changeSetId,
-          String changeSetChecksum) {
-        this.historyRecordId = historyRecordId;
-        this.historyRecordChecksum = historyRecordChecksum;
-        this.changeSetId = changeSetId;
-        this.changeSetChecksum = changeSetChecksum;
-      }
-
-      @Override
-      public String toString() {
-        return String.format(
-            "MissingChangeSet{historyRecordId=%s, historyRecordChecksum=%s, changeSetId=%s, changeSetChecksum=%s}",
-            historyRecordId, historyRecordChecksum, changeSetId, changeSetChecksum);
-      }
+      @Getter private final String historyRecordId;
+      @Getter private final String historyRecordChecksum;
+      @Getter private final String changeSetId;
+      @Getter private final String changeSetChecksum;
     }
 
+    @RequiredArgsConstructor(access = AccessLevel.PUBLIC)
+    @ToString
+    @EqualsAndHashCode(callSuper = true)
     public static class ChecksumMismatch extends Result {
-      private final String historyRecordId;
-      private final String historyRecordChecksum;
-      private final String changeSetId;
-      private final String changeSetChecksum;
-
-      public ChecksumMismatch(
-          String historyRecordId,
-          String historyRecordChecksum,
-          String changeSetId,
-          String changeSetChecksum) {
-        this.historyRecordId = historyRecordId;
-        this.historyRecordChecksum = historyRecordChecksum;
-        this.changeSetId = changeSetId;
-        this.changeSetChecksum = changeSetChecksum;
-      }
-
-      @Override
-      public String toString() {
-        return String.format(
-            "ChecksumMismatch{historyRecordId=%s, historyRecordChecksum=%s, changeSetId=%s, changeSetChecksum=%s}",
-            historyRecordId, historyRecordChecksum, changeSetId, changeSetChecksum);
-      }
+      @Getter private final String historyRecordId;
+      @Getter private final String historyRecordChecksum;
+      @Getter private final String changeSetId;
+      @Getter private final String changeSetChecksum;
     }
+  }
+
+  // Who needs popular utilities like Pair from Apache Commons?
+  @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+  private static final class Pair<T, S> {
+    private final T first;
+    private final S second;
   }
 }

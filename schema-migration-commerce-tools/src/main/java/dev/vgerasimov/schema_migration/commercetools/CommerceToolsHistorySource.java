@@ -9,6 +9,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.type.TypeFactory;
 import dev.vgerasimov.schema_migration.HistoryRecord;
 import dev.vgerasimov.schema_migration.HistorySource;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 
 import java.lang.reflect.Type;
 import java.util.List;
@@ -16,18 +18,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+@RequiredArgsConstructor(access = AccessLevel.PUBLIC)
 public class CommerceToolsHistorySource implements HistorySource {
 
   private final ProjectApiRoot apiRoot;
   private final ObjectMapper objectMapper;
   private final String container;
-
-  public CommerceToolsHistorySource(
-      ProjectApiRoot apiRoot, ObjectMapper objectMapper, String container) {
-    this.apiRoot = apiRoot;
-    this.objectMapper = objectMapper;
-    this.container = container;
-  }
 
   @Override
   public List<HistoryRecord> getHistory() {
@@ -35,8 +31,8 @@ public class CommerceToolsHistorySource implements HistorySource {
         GraphQLRequest.builder()
             .query(
                 ""
-                    + "query getZipcodeRules($containerName: String!, $limit: Int, $offset: Int) { "
-                    + "    customObjects(container: $containerName, limit: $limit, offset: $offset) { "
+                    + "query q($container: String!, $limit: Int, $offset: Int) { "
+                    + "    customObjects(container: $container, limit: $limit, offset: $offset) { "
                     + "        total "
                     + "        results { "
                     + "            container "
@@ -49,7 +45,7 @@ public class CommerceToolsHistorySource implements HistorySource {
             .variables(
                 builder ->
                     builder
-                        .addValue("containerName", container)
+                        .addValue("container", container)
                         .addValue("limit", 100)
                         .addValue("offset", 0))
             .build();

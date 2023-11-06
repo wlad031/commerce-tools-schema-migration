@@ -1,18 +1,18 @@
 package dev.vgerasimov.schema_migration.commercetools;
 
-import com.commercetools.api.client.ProjectApiRoot;
 import dev.vgerasimov.schema_migration.ChangeSet;
 
-import java.io.Serializable;
+import java.io.*;
 import java.util.List;
 import java.util.function.Function;
 
-public abstract class CommerceToolChangeSet extends ChangeSet<CommerceToolsContext> implements Serializable {
+public abstract class CommerceToolChangeSet extends ChangeSet<CommerceToolsContext>
+    implements Serializable {
 
   private final transient String checksum;
 
   private CommerceToolChangeSet(String id, String checksum) {
-    super(id);
+    super(id, checksum, checksum == null);
     this.checksum = checksum;
   }
 
@@ -31,21 +31,22 @@ public abstract class CommerceToolChangeSet extends ChangeSet<CommerceToolsConte
     return checksum;
   }
 
+  public static void main(String[] args){
+    List<CommerceToolChangeSet> changeSets = getChangeSets();
+    for (CommerceToolChangeSet changeSet : changeSets) {
+      System.out.println(changeSet.getChecksum());
+    }
+  }
+
   static List<CommerceToolChangeSet> getChangeSets() {
     return List.of(
-        of(
-            /* id= */ "1",
-            /* checksum= */ "1",
-            context -> {
-              ProjectApiRoot apiRoot = context.getApiRoot();
-              return Status.APPLIED;
-            }),
-        of(
-            /* id= */ "2",
-            /* checksum= */ "2",
-            context -> {
-              ProjectApiRoot apiRoot = context.getApiRoot();
-              return null;
-            }));
+            new CommerceToolChangeSet("id", null) {
+              @Override
+              public Status mutate(CommerceToolsContext context) {
+                System.out.println("2");
+                System.out.println("2");
+                return Status.APPLIED;
+              }
+            });
   }
 }
