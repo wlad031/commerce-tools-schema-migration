@@ -1,15 +1,15 @@
 package dev.vgerasimov.schema_migration;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.TreeMap;
 
 /**
  * Simple implementation of {@link HistorySource} that stores all records in memory. Useful for
  * testing only.
  */
 public class InMemoryHistorySource implements HistorySource {
-  private final LinkedHashMap<String, HistoryRecord> records = new LinkedHashMap<>();
+  private final TreeMap<String, HistoryRecord> records = new TreeMap<>();
 
   @Override
   public List<HistoryRecord> getHistory() {

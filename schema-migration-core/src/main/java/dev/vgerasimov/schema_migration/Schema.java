@@ -6,21 +6,28 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BiFunction;
-import java.util.function.Function;
 import java.util.stream.Stream;
 import lombok.AccessLevel;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import lombok.ToString;
 
+/**
+ * A schema migration tool. It applies change sets to the database and saves the history of applied
+ * change sets. "Database" here is a generic term, it can be any kind of storage, and this class
+ * does not know anything about the storage details.
+ *
+ * <p>Essentially, this class is a {@link BiFunction} that takes a "context" and a list of change
+ * sets. The context is an object that contains everything that is needed to apply change sets. The
+ * return type of the function is a {@link MigrationResult} containing the results of applying change sets.
+ *
+ * @param <C> the type of the context
+ */
 @RequiredArgsConstructor(access = AccessLevel.PUBLIC)
-public class Schema<C extends Context> implements BiFunction<C, List<ChangeSet<C>>, Schema.Result> {
+public class Schema<C extends Context> implements BiFunction<C, List<ChangeSet<C>>, MigrationResult> {
 
   private final HistorySource historySource;
 
   @Override
-  public Result apply(C context, List<ChangeSet<C>> changeSets) {
+  public MigrationResult apply(C context, List<ChangeSet<C>> changeSets) {
     if (changeSets == null) {
       throw new IllegalArgumentException("Change sets list must not be null");
     }
@@ -40,12 +47,12 @@ public class Schema<C extends Context> implements BiFunction<C, List<ChangeSet<C
       }
 
       if (changeSet == null) {
-        return new Result.MissingChangeSet(
+        return new MigrationResult.MissingChangeSet(
             historyRecord.getId(), historyRecord.getChecksum(), null, null);
       }
 
       if (!Objects.equals(historyRecord.getId(), changeSet.getId())) {
-        return new Result.MissingChangeSet(
+        return new MigrationResult.MissingChangeSet(
             historyRecord.getId(),
             historyRecord.getChecksum(),
             changeSet.getId(),
@@ -54,7 +61,7 @@ public class Schema<C extends Context> implements BiFunction<C, List<ChangeSet<C
 
       if (!changeSet.isSkipChecksumValidation()
           && !Objects.equals(historyRecord.getChecksum(), changeSet.getChecksum())) {
-        return new Result.ChecksumMismatch(
+        return new MigrationResult.ChecksumMismatch(
             historyRecord.getId(),
             changeSet.getChecksum(),
             changeSet.getId(),
@@ -70,11 +77,7 @@ public class Schema<C extends Context> implements BiFunction<C, List<ChangeSet<C
     }
 
     var applicationResult = applyAndSaveRecords(context, toApply);
-
-    Function<List<ChangeSet.Result>, Result> resultConstructor;
-    if (applicationResult.first) resultConstructor = Result.Success::new;
-    else resultConstructor = Result.ApplicationFailed::new;
-    return resultConstructor.apply(
+    List<ChangeSet.Result> results =
         Stream.concat(
                 verified.stream()
                     .map(
@@ -84,9 +87,16 @@ public class Schema<C extends Context> implements BiFunction<C, List<ChangeSet<C
                                 ChangeSet.Status.ALREADY_APPLIED,
                                 changeSet.getExecutedAt())),
                 applicationResult.second.stream())
-            .collect(toList()));
+            .collect(toList());
+    return applicationResult.first
+        ? new MigrationResult.Success(results)
+        : new MigrationResult.ApplicationFailed(results);
   }
 
+  /**
+   * Returns a pair of boolean and list of change set results. The boolean value indicates whether
+   * all change sets were applied successfully.
+   */
   private Pair<Boolean, List<ChangeSet.Result>> applyAndSaveRecords(
       C context, ArrayList<ChangeSet<C>> changeSetsToApply) {
     ArrayList<ChangeSet.Result> applicationResults = new ArrayList<>();
@@ -118,45 +128,12 @@ public class Schema<C extends Context> implements BiFunction<C, List<ChangeSet<C
     return new Pair<>(!failed, applicationResults);
   }
 
-  @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
-  @EqualsAndHashCode
-  public abstract static class Result {
-
-    @RequiredArgsConstructor(access = AccessLevel.PUBLIC)
-    @ToString
-    @EqualsAndHashCode(callSuper = true)
-    public static class Success extends Result {
-      @Getter private final List<ChangeSet.Result> changeSetResults;
-    }
-
-    @RequiredArgsConstructor(access = AccessLevel.PUBLIC)
-    @ToString
-    @EqualsAndHashCode(callSuper = true)
-    public static class ApplicationFailed extends Result {
-      @Getter private final List<ChangeSet.Result> changeSetResults;
-    }
-
-    @RequiredArgsConstructor(access = AccessLevel.PUBLIC)
-    @ToString
-    @EqualsAndHashCode(callSuper = true)
-    public static class MissingChangeSet extends Result {
-      @Getter private final String historyRecordId;
-      @Getter private final String historyRecordChecksum;
-      @Getter private final String changeSetId;
-      @Getter private final String changeSetChecksum;
-    }
-
-    @RequiredArgsConstructor(access = AccessLevel.PUBLIC)
-    @ToString
-    @EqualsAndHashCode(callSuper = true)
-    public static class ChecksumMismatch extends Result {
-      @Getter private final String historyRecordId;
-      @Getter private final String historyRecordChecksum;
-      @Getter private final String changeSetId;
-      @Getter private final String changeSetChecksum;
-    }
-  }
-
+  /**
+   * A pair of two values.
+   *
+   * @param <T> the type of the first value
+   * @param <S> the type of the second value
+   */
   // Who needs popular utilities like Pair from Apache Commons?
   @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
   private static final class Pair<T, S> {

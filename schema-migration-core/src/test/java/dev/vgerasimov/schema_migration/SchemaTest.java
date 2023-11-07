@@ -33,26 +33,26 @@ class SchemaTest {
   void nullChangeSets_exception() {
     IllegalArgumentException exception =
         assertThrows(
-            IllegalArgumentException.class, () -> underTest.apply(Context.of(clock), null));
+            IllegalArgumentException.class, () -> underTest.apply(Context.basic(clock), null));
     assertEquals("Change sets list must not be null", exception.getMessage());
   }
 
   @Test
   void emptyHistory_emptyChangeSets_noChanges() {
-    var actual = underTest.apply(Context.of(clock), List.of());
+    var actual = underTest.apply(Context.basic(clock), List.of());
 
-    assertEquals(new Schema.Result.Success(List.of()), actual);
+    assertEquals(new MigrationResult.Success(List.of()), actual);
     assertHistory();
   }
 
   @Test
   void emptyHistory_oneChangeSet_applied() {
-    Schema.Result actual =
+    MigrationResult actual =
         underTest.apply(
-            Context.of(clock), List.of(changeSet("1", "1", __ -> ChangeSet.Status.APPLIED)));
+            Context.basic(clock), List.of(changeSet("1", "1", __ -> ChangeSet.Status.APPLIED)));
 
     assertEquals(
-        new Schema.Result.Success(
+        new MigrationResult.Success(
             List.of(
                 new ChangeSet.Result("1", ChangeSet.Status.APPLIED, dateTime(timeStart + 0)))),
         actual);
@@ -62,15 +62,15 @@ class SchemaTest {
 
   @Test
   void emptyHistory_twoChangeSets_applied() {
-    Schema.Result actual =
+    MigrationResult actual =
         underTest.apply(
-            Context.of(clock),
+            Context.basic(clock),
             List.of(
                 changeSet("1", "1", __ -> ChangeSet.Status.APPLIED),
                 changeSet("2", "2", __ -> ChangeSet.Status.APPLIED)));
 
     assertEquals(
-        new Schema.Result.Success(
+        new MigrationResult.Success(
             List.of(
                 new ChangeSet.Result("1", ChangeSet.Status.APPLIED, dateTime(timeStart + 0)),
                 new ChangeSet.Result("2", ChangeSet.Status.APPLIED, dateTime(timeStart + 1)))),
@@ -84,15 +84,15 @@ class SchemaTest {
   void oneInHistory_twoChangeSets_oneSkippedOneApplied() {
     saveHistory(new HistoryRecord("1", dateTime(timeStart - 9), HistoryRecord.Status.SUCCESS, "1"));
 
-    Schema.Result actual =
+    MigrationResult actual =
         underTest.apply(
-            Context.of(clock),
+            Context.basic(clock),
             List.of(
                 changeSet("1", "1", __ -> ChangeSet.Status.APPLIED),
                 changeSet("2", "2", __ -> ChangeSet.Status.APPLIED)));
 
     assertEquals(
-        new Schema.Result.Success(
+        new MigrationResult.Success(
             List.of(
                 new ChangeSet.Result("1", ChangeSet.Status.ALREADY_APPLIED, dateTime(timeStart - 9)),
                 new ChangeSet.Result("2", ChangeSet.Status.APPLIED, dateTime(timeStart + 0)))),
@@ -108,15 +108,15 @@ class SchemaTest {
         new HistoryRecord("1", dateTime(timeStart - 9), HistoryRecord.Status.SUCCESS, "1"),
         new HistoryRecord("2", dateTime(timeStart - 8), HistoryRecord.Status.SUCCESS, "2"));
 
-    Schema.Result actual =
+    MigrationResult actual =
         underTest.apply(
-            Context.of(clock),
+            Context.basic(clock),
             List.of(
                 changeSet("1", "1", __ -> ChangeSet.Status.APPLIED),
                 changeSet("2", "2", __ -> ChangeSet.Status.APPLIED)));
 
     assertEquals(
-        new Schema.Result.Success(
+        new MigrationResult.Success(
             List.of(
                 new ChangeSet.Result("1", ChangeSet.Status.ALREADY_APPLIED, dateTime(timeStart - 9)),
                 new ChangeSet.Result(
@@ -131,9 +131,9 @@ class SchemaTest {
   void oneInHistory_threeChangeSets_secondThrowsException_failedSavedAndSkippedReturned() {
     saveHistory(new HistoryRecord("1", dateTime(timeStart - 9), HistoryRecord.Status.SUCCESS, "1"));
 
-    Schema.Result actual =
+    MigrationResult actual =
         underTest.apply(
-            Context.of(clock),
+            Context.basic(clock),
             List.of(
                 changeSet("1", "1", __ -> ChangeSet.Status.APPLIED),
                 changeSet(
@@ -145,7 +145,7 @@ class SchemaTest {
                 changeSet("3", "3", __ -> ChangeSet.Status.APPLIED)));
 
     assertEquals(
-        new Schema.Result.ApplicationFailed(
+        new MigrationResult.ApplicationFailed(
             List.of(
                 new ChangeSet.Result("1", ChangeSet.Status.ALREADY_APPLIED, dateTime(timeStart - 9)),
                 new ChangeSet.Result("2", ChangeSet.Status.FAILED, null),
@@ -160,16 +160,16 @@ class SchemaTest {
   void oneInHistory_threeChangeSets_secondReturnsFailed_failedSavedAndSkippedReturned() {
     saveHistory(new HistoryRecord("1", dateTime(timeStart - 9), HistoryRecord.Status.SUCCESS, "1"));
 
-    Schema.Result actual =
+    MigrationResult actual =
         underTest.apply(
-            Context.of(clock),
+            Context.basic(clock),
             List.of(
                 changeSet("1", "1", __ -> ChangeSet.Status.APPLIED),
                 changeSet("2", "2", __ -> ChangeSet.Status.FAILED),
                 changeSet("3", "3", __ -> ChangeSet.Status.APPLIED)));
 
     assertEquals(
-        new Schema.Result.ApplicationFailed(
+        new MigrationResult.ApplicationFailed(
             List.of(
                 new ChangeSet.Result("1", ChangeSet.Status.ALREADY_APPLIED, dateTime(timeStart - 9)),
                 new ChangeSet.Result("2", ChangeSet.Status.FAILED, dateTime(timeStart + 0)),
@@ -186,16 +186,16 @@ class SchemaTest {
         new HistoryRecord("1", dateTime(timeStart - 9), HistoryRecord.Status.SUCCESS, "1"),
         new HistoryRecord("2", null, HistoryRecord.Status.FAILED, "2"));
 
-    Schema.Result actual =
+    MigrationResult actual =
         underTest.apply(
-            Context.of(clock),
+            Context.basic(clock),
             List.of(
                 changeSet("1", "1", __ -> ChangeSet.Status.APPLIED),
                 changeSet("2", "2", __ -> ChangeSet.Status.APPLIED),
                 changeSet("3", "3", __ -> ChangeSet.Status.APPLIED)));
 
     assertEquals(
-        new Schema.Result.Success(
+        new MigrationResult.Success(
             List.of(
                 new ChangeSet.Result("1", ChangeSet.Status.ALREADY_APPLIED, dateTime(timeStart - 9)),
                 new ChangeSet.Result("2", ChangeSet.Status.APPLIED, dateTime(timeStart + 0)),
